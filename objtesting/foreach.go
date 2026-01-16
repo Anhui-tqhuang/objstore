@@ -123,25 +123,18 @@ func ForeachStore(t *testing.T, testFn func(t *testing.T, bkt objstore.Bucket)) 
 			datalakeAccount := os.Getenv("AZURE_STORAGE_ACCOUNT_DATALAKE")
 			datalakeKey := os.Getenv("AZURE_STORAGE_ACCESS_KEY_DATALAKE")
 			if datalakeAccount != "" && datalakeKey != "" {
-				t.Run("data lake gen2", func(t *testing.T) {
+				t.Run("azure data lake gen2", func(t *testing.T) {
 					prevAccount := os.Getenv("AZURE_STORAGE_ACCOUNT")
 					prevKey := os.Getenv("AZURE_STORAGE_ACCESS_KEY")
 					defer func() {
 						os.Setenv("AZURE_STORAGE_ACCOUNT", prevAccount)
 						os.Setenv("AZURE_STORAGE_ACCESS_KEY", prevKey)
-						os.Unsetenv("IS_AZURE_DATA_LAKE_GEN2")
 					}()
 
 					os.Setenv("AZURE_STORAGE_ACCOUNT", datalakeAccount)
 					os.Setenv("AZURE_STORAGE_ACCESS_KEY", datalakeKey)
 
 					bkt, closeFn, err := azure.NewTestBucket(t, "e2e-tests")
-					testutil.Ok(t, err)
-
-					// Set env var based on actual bucket type (autodiscovered)
-					if _, isDataLake := bkt.(*azure.DataLakeGen2Bucket); isDataLake {
-						os.Setenv("IS_AZURE_DATA_LAKE_GEN2_HN", "true")
-					}
 					testutil.Ok(t, err)
 					defer closeFn()
 

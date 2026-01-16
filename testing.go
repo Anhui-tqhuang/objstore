@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -264,8 +263,11 @@ func AcceptanceTest(t *testing.T, bkt Bucket) {
 		return nil
 	}))
 	expected = []string{"obj_5.some", "id1/"}
-	if os.Getenv("IS_AZURE_DATA_LAKE_GEN2_HN") == "true" && bkt.Provider() == AZURE {
-		expected = []string{"obj_5.some", "id1/", "id2/"} // Azure Data Lake Gen2 keeps empty dirs.
+
+	// Check if we're in the Data Lake Gen2 test path
+	// Azure Data Lake Gen2 with Hierarchical Namespace enabled keeps empty dirs.
+	if bkt.Provider() == AZURE && strings.Contains(t.Name(), "azure_data_lake_gen2") {
+		expected = []string{"obj_5.some", "id1/", "id2/"}
 	}
 
 	sort.Strings(expected)

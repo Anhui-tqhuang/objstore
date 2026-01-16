@@ -457,9 +457,17 @@ func NewTestBucket(t testing.TB, component string) (objstore.Bucket, func(), err
 	ctx := context.Background()
 	return bkt, func() {
 		objstore.EmptyBucket(t, ctx, bkt)
-		_, err := bkt.(*Bucket).containerClient.Delete(ctx, &container.DeleteOptions{})
-		if err != nil {
-			t.Logf("deleting bucket failed: %s", err)
+
+		var deleteErr error
+		switch b := bkt.(type) {
+		case *Bucket:
+			_, deleteErr = b.containerClient.Delete(ctx, &container.DeleteOptions{})
+		case *DataLakeGen2Bucket:
+			_, deleteErr = b.filesystemClient.Delete(ctx, nil)
+		}
+
+		if deleteErr != nil {
+			t.Logf("deleting bucket failed: %s", deleteErr)
 		}
 	}, nil
 }
