@@ -102,34 +102,54 @@ func ForeachStore(t *testing.T, testFn func(t *testing.T, bkt objstore.Bucket)) 
 	}
 
 	// Optional Azure (automatically detects Blob vs Data Lake Gen2).
+	// Note: Azure tests run sequentially (not in parallel) to avoid env var conflicts when testing both types.
 	if !IsObjStoreSkipped(t, objstore.AZURE) {
 		t.Run("azure", func(t *testing.T) {
-			bkt, closeFn, err := azure.NewTestBucket(t, "e2e-tests")
-			testutil.Ok(t, err)
-
+			// run in parallel across other providers
 			t.Parallel()
-			defer closeFn()
 
-			testFn(t, bkt)
-			testFn(t, objstore.NewPrefixedBucket(bkt, "some_prefix"))
-		})
-
-		// If separate Data Lake Gen2 credentials are provided, test autodiscovery with both.
-		if datalakeAccount, datalakeKey := os.Getenv("AZURE_STORAGE_ACCOUNT_DATALAKE"), os.Getenv("AZURE_STORAGE_ACCESS_KEY_DATALAKE"); datalakeAccount != "" && datalakeKey != "" {
-			t.Run("azure data lake gen2", func(t *testing.T) {
-				os.Setenv("AZURE_STORAGE_ACCOUNT", datalakeAccount)
-				os.Setenv("AZURE_STORAGE_ACCESS_KEY", datalakeKey)
-
+			// First test: default Azure storage account - don't run in parallel with Data Lake Gen2.
+			t.Run("default", func(t *testing.T) {
 				bkt, closeFn, err := azure.NewTestBucket(t, "e2e-tests")
 				testutil.Ok(t, err)
-
-				t.Parallel()
 				defer closeFn()
 
 				testFn(t, bkt)
 				testFn(t, objstore.NewPrefixedBucket(bkt, "some_prefix"))
 			})
-		}
+
+			// If separate Data Lake Gen2 credentials are provided, test autodiscovery with both.
+			// Don't run in parallel with default test above to avoid env var conflicts.
+			datalakeAccount := os.Getenv("AZURE_STORAGE_ACCOUNT_DATALAKE")
+			datalakeKey := os.Getenv("AZURE_STORAGE_ACCESS_KEY_DATALAKE")
+			if datalakeAccount != "" && datalakeKey != "" {
+				t.Run("data lake gen2", func(t *testing.T) {
+					prevAccount := os.Getenv("AZURE_STORAGE_ACCOUNT")
+					prevKey := os.Getenv("AZURE_STORAGE_ACCESS_KEY")
+					defer func() {
+						os.Setenv("AZURE_STORAGE_ACCOUNT", prevAccount)
+						os.Setenv("AZURE_STORAGE_ACCESS_KEY", prevKey)
+						os.Unsetenv("IS_AZURE_DATA_LAKE_GEN2")
+					}()
+
+					os.Setenv("AZURE_STORAGE_ACCOUNT", datalakeAccount)
+					os.Setenv("AZURE_STORAGE_ACCESS_KEY", datalakeKey)
+
+					bkt, closeFn, err := azure.NewTestBucket(t, "e2e-tests")
+					testutil.Ok(t, err)
+
+					// Set env var based on actual bucket type (autodiscovered)
+					if _, isDataLake := bkt.(*azure.DataLakeGen2Bucket); isDataLake {
+						os.Setenv("IS_AZURE_DATA_LAKE_GEN2_HN", "true")
+					}
+					testutil.Ok(t, err)
+					defer closeFn()
+
+					testFn(t, bkt)
+					testFn(t, objstore.NewPrefixedBucket(bkt, "some_prefix"))
+				})
+			}
+		})
 	}
 
 	// Optional SWIFT.

@@ -264,7 +264,7 @@ func AcceptanceTest(t *testing.T, bkt Bucket) {
 		return nil
 	}))
 	expected = []string{"obj_5.some", "id1/"}
-	if os.Getenv("IS_AZURE_DATA_LAKE_GEN2") == "true" && bkt.Provider() == AZURE {
+	if os.Getenv("IS_AZURE_DATA_LAKE_GEN2_HN") == "true" && bkt.Provider() == AZURE {
 		expected = []string{"obj_5.some", "id1/", "id2/"} // Azure Data Lake Gen2 keeps empty dirs.
 	}
 
