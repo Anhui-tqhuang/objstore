@@ -330,9 +330,19 @@ func NewTestDataLakeGen2Bucket(t testing.TB, component string) (objstore.Bucket,
 	ctx := context.Background()
 	return bkt, func() {
 		objstore.EmptyBucket(t, ctx, bkt)
-		_, err := bkt.(*DataLakeGen2Bucket).filesystemClient.Delete(ctx, nil)
-		if err != nil {
-			t.Logf("deleting bucket failed: %s", err)
+		// NewBucket's autodetect may return either concrete type depending on
+		// whether the target account has hierarchical namespaces enabled.
+		switch b := bkt.(type) {
+		case *DataLakeGen2Bucket:
+			if _, err := b.filesystemClient.Delete(ctx, nil); err != nil {
+				t.Logf("deleting bucket failed: %s", err)
+			}
+		case *Bucket:
+			if _, err := b.containerClient.Delete(ctx, nil); err != nil {
+				t.Logf("deleting bucket failed: %s", err)
+			}
+		default:
+			t.Logf("unexpected bucket type %T; skipping delete", bkt)
 		}
 	}, nil
 }
