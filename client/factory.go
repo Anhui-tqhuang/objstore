@@ -59,7 +59,7 @@ func NewBucketFromConfig(logger log.Logger, bucketConf *BucketConfig, component 
 	case string(objstore.S3):
 		bucket, err = s3.NewBucket(logger, config, component, wrapRoundtripper)
 	case string(objstore.AZURE):
-		bucket, err = azure.NewBucket(logger, config, component, wrapRoundtripper)
+		bucket, err = azure.NewBucketAuto(logger, config, component, wrapRoundtripper)
 	case string(objstore.SWIFT):
 		bucket, err = swift.NewContainer(logger, config, wrapRoundtripper)
 	case string(objstore.COS):

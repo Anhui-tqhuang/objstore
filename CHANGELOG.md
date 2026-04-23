@@ -76,6 +76,6 @@ We use *breaking :warning:* to mark changes that are not backward compatible (re
 - [#132](https://github.com/thanos-io/objstore/pull/132) s3: Upgrade aws-sdk-go-v2/config version to `v1.27.30`
 - [#238](https://github.com/thanos-io/objstore/pull/238) Azure: Add support to azure data lake gen 2 storage.
 - [#238](https://github.com/thanos-io/objstore/pull/238) Azure: Add `dfs_endpoint` config for Data Lake Gen2 filesystem operations. Defaults to deriving from `endpoint` (swapping `blob.` → `dfs.`); set explicitly for Private Link or other non-standard topologies.
-- [#238](https://github.com/thanos-io/objstore/pull/238) *breaking :warning:* Azure: `NewBucket` and `NewBucketWithConfig` now return `objstore.Bucket` instead of the concrete `*Bucket`, so autodetect can return either a blob or a Data Lake Gen2 client. Callers that stored the result as `*azure.Bucket` must switch to the interface type or type-assert. To preserve previous behavior and keep a concrete `*Bucket` return, set `storage_account_type: blob` in the config.
+- [#238](https://github.com/thanos-io/objstore/pull/238) Azure: Add `NewBucketAuto` constructor that autodetects blob vs. Data Lake Gen2 and returns `objstore.Bucket`. `NewBucket`/`NewBucketWithConfig` retain their concrete `*Bucket` return type and build the blob client only; set `storage_account_type: datalake` or call `NewDataLakeGen2Bucket` for the Gen2 client.
 
 ### Removed

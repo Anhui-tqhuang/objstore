@@ -176,8 +176,9 @@ type Bucket struct {
 	readerMaxRetries int
 }
 
-// NewBucket returns a new Bucket using the provided Azure config.
-func NewBucket(logger log.Logger, azureConfig []byte, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (objstore.Bucket, error) {
+// NewBucket returns a new blob-backed Bucket using the provided Azure config.
+// Use NewBucketAuto to auto-select between the blob and Data Lake Gen2 clients.
+func NewBucket(logger log.Logger, azureConfig []byte, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
 	level.Debug(logger).Log("msg", "creating new Azure bucket connection", "component", component)
 	conf, err := parseConfig(azureConfig)
 	if err != nil {
@@ -189,34 +190,22 @@ func NewBucket(logger log.Logger, azureConfig []byte, component string, wrapRoun
 	return NewBucketWithConfig(logger, conf, component, wrapRoundtripper)
 }
 
-// NewBucketWithConfig returns a new Bucket using the provided Azure config struct.
-func NewBucketWithConfig(logger log.Logger, conf Config, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (objstore.Bucket, error) {
+// NewBucketWithConfig returns a new blob-backed Bucket using the provided Azure
+// config struct. If conf.StorageAccountType is set to AzStorageAccountType_DataLake,
+// this returns an error directing the caller to NewDataLakeGen2Bucket or
+// NewBucketAuto; an unset value is treated as blob (no autodetect in this path).
+func NewBucketWithConfig(logger log.Logger, conf Config, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
 	if err := conf.validate(); err != nil {
 		return nil, err
+	}
+
+	if conf.StorageAccountType == AzStorageAccountType_DataLake {
+		return nil, errors.New("storage_account_type is \"datalake\"; call NewDataLakeGen2Bucket or NewBucketAuto for autodetect")
 	}
 
 	containerClient, err := getContainerClient(conf, wrapRoundtripper)
 	if err != nil {
 		return nil, err
-	}
-
-	if conf.StorageAccountType == AzStorageAccountType_Unset {
-		level.Info(logger).Log("msg", "storage_account_type not set, attempting to autodetect storage account type")
-		// Autodetect the storage account type by connecting with the gen1 (azblob) sdk and
-		// querying the account properties.
-		var err error
-		conf.StorageAccountType, err = autodiscoverStorageAccountType(containerClient, logger, conf)
-		if err != nil {
-			return nil, errors.Wrap(err, "when auto-discovering Azure Storage account type")
-		}
-	}
-
-	switch conf.StorageAccountType {
-	case AzStorageAccountType_DataLake:
-		level.Debug(logger).Log("msg", "using azure data lake gen 2 storage (azdatalake)")
-		return NewDataLakeGen2Bucket(logger, conf, component, wrapRoundtripper)
-	case AzStorageAccountType_Blob:
-		// Continue to create a gen1 client
 	}
 
 	// Check if storage account container already exists, and create one if it does not.
@@ -241,6 +230,51 @@ func NewBucketWithConfig(logger log.Logger, conf Config, component string, wrapR
 		readerMaxRetries: conf.ReaderConfig.MaxRetryRequests,
 	}
 	return bkt, nil
+}
+
+// NewBucketAuto returns an objstore.Bucket backed by either the blob or Data Lake
+// Gen2 client. The concrete type depends on conf.StorageAccountType, which is
+// autodetected via the blob Get-Account-Information API when unset. Prefer this
+// over NewBucket when the target account type isn't known at compile time.
+func NewBucketAuto(logger log.Logger, azureConfig []byte, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (objstore.Bucket, error) {
+	level.Debug(logger).Log("msg", "creating new Azure bucket connection (auto)", "component", component)
+	conf, err := parseConfig(azureConfig)
+	if err != nil {
+		return nil, err
+	}
+	if conf.MSIResource != "" {
+		level.Warn(logger).Log("msg", "The field msi_resource has been deprecated and should no longer be set")
+	}
+	return NewBucketAutoWithConfig(logger, conf, component, wrapRoundtripper)
+}
+
+// NewBucketAutoWithConfig is the struct-config equivalent of NewBucketAuto.
+func NewBucketAutoWithConfig(logger log.Logger, conf Config, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (objstore.Bucket, error) {
+	if err := conf.validate(); err != nil {
+		return nil, err
+	}
+
+	if conf.StorageAccountType == AzStorageAccountType_Unset {
+		level.Info(logger).Log("msg", "storage_account_type not set, attempting to autodetect storage account type")
+		containerClient, err := getContainerClient(conf, wrapRoundtripper)
+		if err != nil {
+			return nil, err
+		}
+		conf.StorageAccountType, err = autodiscoverStorageAccountType(containerClient, logger, conf)
+		if err != nil {
+			return nil, errors.Wrap(err, "when auto-discovering Azure Storage account type")
+		}
+	}
+
+	switch conf.StorageAccountType {
+	case AzStorageAccountType_DataLake:
+		level.Debug(logger).Log("msg", "using azure data lake gen 2 storage (azdatalake)")
+		return NewDataLakeGen2Bucket(logger, conf, component, wrapRoundtripper)
+	case AzStorageAccountType_Blob:
+		return NewBucketWithConfig(logger, conf, component, wrapRoundtripper)
+	default:
+		return nil, errors.Errorf("invalid storage_account_type: %q", conf.StorageAccountType)
+	}
 }
 
 func (b *Bucket) Provider() objstore.ObjProvider { return objstore.AZURE }
@@ -462,19 +496,8 @@ func NewTestBucket(t testing.TB, component string) (objstore.Bucket, func(), err
 	ctx := context.Background()
 	return bkt, func() {
 		objstore.EmptyBucket(t, ctx, bkt)
-		// NewBucket's autodetect may return either concrete type depending on
-		// whether the target account has hierarchical namespaces enabled.
-		switch b := bkt.(type) {
-		case *Bucket:
-			if _, err := b.containerClient.Delete(ctx, &container.DeleteOptions{}); err != nil {
-				t.Logf("deleting bucket failed: %s", err)
-			}
-		case *DataLakeGen2Bucket:
-			if _, err := b.filesystemClient.Delete(ctx, nil); err != nil {
-				t.Logf("deleting bucket failed: %s", err)
-			}
-		default:
-			t.Logf("unexpected bucket type %T; skipping delete", bkt)
+		if _, err := bkt.containerClient.Delete(ctx, &container.DeleteOptions{}); err != nil {
+			t.Logf("deleting bucket failed: %s", err)
 		}
 	}, nil
 }

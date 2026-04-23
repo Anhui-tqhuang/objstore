@@ -16,7 +16,6 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
 	"github.com/thanos-io/objstore"
-	"gopkg.in/yaml.v2"
 )
 
 type DataLakeGen2Bucket struct {
@@ -313,16 +312,13 @@ func (b *DataLakeGen2Bucket) Close() error {
 func NewTestDataLakeGen2Bucket(t testing.TB, component string) (objstore.Bucket, func(), error) {
 	t.Log("Using test Azure data lake gen 2 bucket.")
 
-	conf := &DefaultConfig
+	conf := DefaultConfig
 	conf.StorageAccountName = os.Getenv("AZURE_STORAGE_ACCOUNT")
 	conf.StorageAccountKey = os.Getenv("AZURE_STORAGE_ACCESS_KEY")
 	conf.ContainerName = objstore.CreateTemporaryTestBucketName(t)
+	conf.StorageAccountType = AzStorageAccountType_DataLake
 
-	bc, err := yaml.Marshal(conf)
-	if err != nil {
-		return nil, nil, err
-	}
-	bkt, err := NewBucket(log.NewNopLogger(), bc, component, nil)
+	bkt, err := NewDataLakeGen2Bucket(log.NewNopLogger(), conf, component, nil)
 	if err != nil {
 		t.Errorf("Cannot create Azure storage container:")
 		return nil, nil, err
@@ -330,19 +326,8 @@ func NewTestDataLakeGen2Bucket(t testing.TB, component string) (objstore.Bucket,
 	ctx := context.Background()
 	return bkt, func() {
 		objstore.EmptyBucket(t, ctx, bkt)
-		// NewBucket's autodetect may return either concrete type depending on
-		// whether the target account has hierarchical namespaces enabled.
-		switch b := bkt.(type) {
-		case *DataLakeGen2Bucket:
-			if _, err := b.filesystemClient.Delete(ctx, nil); err != nil {
-				t.Logf("deleting bucket failed: %s", err)
-			}
-		case *Bucket:
-			if _, err := b.containerClient.Delete(ctx, nil); err != nil {
-				t.Logf("deleting bucket failed: %s", err)
-			}
-		default:
-			t.Logf("unexpected bucket type %T; skipping delete", bkt)
+		if _, err := bkt.filesystemClient.Delete(ctx, nil); err != nil {
+			t.Logf("deleting bucket failed: %s", err)
 		}
 	}, nil
 }
