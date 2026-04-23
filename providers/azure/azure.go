@@ -78,6 +78,11 @@ type Config struct {
 	// Azure Storage Account type - blob (gen1) for Azure Blob Storage, or datalake (gen2)
 	// for Azure Data Lake Storage. Autodetected if not set.
 	StorageAccountType AzStorageAccountType `yaml:"storage_account_type"`
+
+	// DFS endpoint for Azure Data Lake Gen2 filesystem operations. If empty, derived
+	// from Endpoint by replacing the first "blob." with "dfs.". Set explicitly for
+	// Private Link topologies where the DFS hostname differs from the blob hostname.
+	DFSEndpoint string `yaml:"dfs_endpoint"`
 }
 
 type ReaderConfig struct {

@@ -256,3 +256,34 @@ func TestNewBucketWithErrorRoundTripper(t *testing.T) {
 	testutil.NotOk(t, err)
 	testutil.Assert(t, errutil.IsMockedError(err), "Expected RoundTripper error, got: %v", err)
 }
+
+func TestResolveDFSEndpoint(t *testing.T) {
+	cases := []struct {
+		name        string
+		endpoint    string
+		dfsEndpoint string
+		want        string
+		wantErr     bool
+	}{
+		{name: "explicit override wins", endpoint: "blob.core.windows.net", dfsEndpoint: "custom.dfs.example", want: "custom.dfs.example"},
+		{name: "explicit override with empty endpoint", endpoint: "", dfsEndpoint: "custom.dfs.example", want: "custom.dfs.example"},
+		{name: "azure public", endpoint: "blob.core.windows.net", want: "dfs.core.windows.net"},
+		{name: "azure gov", endpoint: "blob.core.usgovcloudapi.net", want: "dfs.core.usgovcloudapi.net"},
+		{name: "azure china", endpoint: "blob.core.chinacloudapi.cn", want: "dfs.core.chinacloudapi.cn"},
+		{name: "private link", endpoint: "myacct.privatelink.blob.core.windows.net", want: "myacct.privatelink.dfs.core.windows.net"},
+		{name: "endpoint without blob. errors", endpoint: "custom.example.com", wantErr: true},
+		{name: "empty endpoint and no override errors", endpoint: "", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveDFSEndpoint(Config{Endpoint: tc.endpoint, DFSEndpoint: tc.dfsEndpoint})
+			if tc.wantErr {
+				testutil.NotOk(t, err)
+				return
+			}
+			testutil.Ok(t, err)
+			testutil.Equals(t, tc.want, got)
+		})
+	}
+}

@@ -468,6 +468,7 @@ config:
   storage_account: ""
   storage_account_key: ""
   storage_account_type: ""
+  dfs_endpoint: ""
   storage_connection_string: ""
   storage_create_container: false
   container: ""
@@ -510,6 +511,8 @@ If `storage_connection_string` is set, the values of `storage_account` and `endp
 The generic `max_retries` will be used as value for the `pipeline_config`'s `max_tries` and `reader_config`'s `max_retry_requests`. For more control, `max_retries` could be ignored (0) and one could set specific retry values.
 
 The provider automatically detects [Azure Data Lake Storage (Gen2/hierarchical namespace) accounts](https://learn.microsoft.com/en-us/azure/storage/blobs/data-lake-storage-introduction) and switches from the Gen1 `azblob` SDK to the Gen2 `azdatalake` SDK accordingly, supporting both Azure Storage account types seamlessly. To override auto-detection and force a specific client, set `storage_account_type` to `blob` for the `azblob` SDK or `datalake` for the `azdatalake` SDK. Note that the Data Lake SDK may not work with Gen1 blob accounts, and there are known issues using the `azblob` SDK with Data Lake accounts. Therefore, it's recommended to leave this setting unconfigured to allow auto-detection.
+
+When the Data Lake Gen2 client is used, the DFS endpoint is derived from `endpoint` by replacing the first `blob.` with `dfs.` (covering Azure public, Gov, China, and standard Private Link hostnames). For non-standard topologies where the DFS hostname does not follow that pattern, set `dfs_endpoint` explicitly.
 
 ##### OpenStack Swift
 
