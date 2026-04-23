@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -21,6 +22,23 @@ import (
 
 	"github.com/thanos-io/objstore/exthttp"
 )
+
+// resolveDFSEndpoint returns the DFS endpoint to use for Data Lake Gen2 operations.
+// If conf.DFSEndpoint is set, it is used as-is. Otherwise the endpoint is derived
+// from conf.Endpoint by replacing the first "blob." with "dfs." — this covers Azure
+// public, Azure Gov, Azure China, and the common "{account}.privatelink.blob.*"
+// Private Link pattern. Users with non-standard topologies should set DFSEndpoint.
+func resolveDFSEndpoint(conf Config) (string, error) {
+	if conf.DFSEndpoint != "" {
+		return conf.DFSEndpoint, nil
+	}
+	if !strings.Contains(conf.Endpoint, "blob.") {
+		return "", errors.Errorf(
+			"cannot derive DFS endpoint from blob endpoint %q: expected to contain \"blob.\"; set dfs_endpoint explicitly",
+			conf.Endpoint)
+	}
+	return strings.Replace(conf.Endpoint, "blob.", "dfs.", 1), nil
+}
 
 // DirDelim is the delimiter used to model a directory structure in an object store bucket.
 const DirDelim = "/"
@@ -76,11 +94,16 @@ func getDataLakeGen2FilesystemClient(conf Config, wrapRoundtripper func(http.Rou
 		},
 	}
 
-	fileSystemURL := fmt.Sprintf("https://%s.dfs.core.windows.net/%s", conf.StorageAccountName, conf.ContainerName)
-
+	// Connection strings carry their own endpoint; no URL construction needed.
 	if conf.StorageConnectionString != "" {
 		return azfilesystem.NewClientFromConnectionString(conf.StorageConnectionString, conf.ContainerName, opt)
 	}
+
+	dfsEndpoint, err := resolveDFSEndpoint(conf)
+	if err != nil {
+		return nil, err
+	}
+	fileSystemURL := fmt.Sprintf("https://%s.%s/%s", conf.StorageAccountName, dfsEndpoint, conf.ContainerName)
 
 	if conf.StorageAccountKey != "" {
 		creds, err := azdatalake.NewSharedKeyCredential(conf.StorageAccountName, conf.StorageAccountKey)
